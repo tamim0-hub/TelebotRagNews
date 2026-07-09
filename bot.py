@@ -25,9 +25,9 @@ except ImportError:
     Groq = None
 
 # ==================== কনফিগারেশন ====================
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-CHAT_ID = os.environ.get("CHAT_ID")
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+TELEGRAM_TOKEN = os.environ.get("8891207870:AAENyw8YazdB3g9QEUhG0Ok_GPC6064KRRk")
+CHAT_ID = os.environ.get("7602636366")
+GROQ_API_KEY = os.environ.get("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")
 
 if not TELEGRAM_TOKEN or not CHAT_ID:
     raise ValueError("❌ TELEGRAM_TOKEN এবং CHAT_ID অবশ্যই সেট করুন!")
