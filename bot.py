@@ -1,4 +1,4 @@
-######import logging
+import logging
 import asyncio
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -13,24 +13,9 @@ from html import unescape
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-# ==================== এনভায়রনমেন্ট ভেরিয়েবল ====================
-from dotenv import load_dotenv
-load_dotenv()
-
-# ==================== Groq API ক্লায়েন্ট ====================
-try:
-    from groq import Groq
-except ImportError:
-    print("⚠️ Groq প্যাকেজ ইনস্টল করুন: pip install groq")
-    Groq = None
-
 # ==================== কনফিগারেশন ====================
-TELEGRAM_TOKEN = os.environ.get("8891207870:AAENyw8YazdB3g9QEUhG0Ok_GPC6064KRRk")
-CHAT_ID = os.environ.get("7602636366")
-GROQ_API_KEY = os.environ.get("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")
-
-if not TELEGRAM_TOKEN or not CHAT_ID:
-    raise ValueError("❌ TELEGRAM_TOKEN এবং CHAT_ID অবশ্যই সেট করুন!")
+TELEGRAM_TOKEN = "8891207870:AAHIkv2K5szrlk9uQQUduG755pG3ncy8iWc"
+CHAT_ID = "7602636366"
 
 # লগিং সেটআপ
 logging.basicConfig(
@@ -47,180 +32,278 @@ FEEDS = [
     ('Hacker News Top', 'https://hnrss.org/frontpage?points=100'),
 ]
 
-# ==================== Groq AI কন্টেন্ট জেনারেটর ====================
+# ==================== Agentic AI কন্টেন্ট জেনারেটর ====================
 
-class GroqAIContentGenerator:
-    """Groq API ব্যবহার করে Agentic AI স্টাইলে কন্টেন্ট জেনারেট করে"""
+class AgenticAIContentGenerator:
+    """Agentic AI স্টাইলে কন্টেন্ট জেনারেট করে"""
     
-    def __init__(self, api_key):
-        self.api_key = api_key
-        self.client = None
-        
-        if Groq and api_key:
-            try:
-                self.client = Groq(api_key=api_key)
-                logger.info("✅ Groq API কানেক্টেড!")
-            except Exception as e:
-                logger.error(f"❌ Groq API কানেক্ট করতে ব্যর্থ: {e}")
-                self.client = None
-        else:
-            logger.warning("⚠️ Groq API Key সেট নেই। ফ্যালব্যাক মোড ব্যবহার হবে।")
-            self.client = None
-    
-    def generate_post_with_groq(self, title, seo_story, source, is_old=False, desc="", story_url="#"):
-        """Groq API ব্যবহার করে সম্পূর্ণ পোস্ট জেনারেট করে"""
-        
-        if not self.client:
-            return self.generate_fallback_post(title, seo_story, source, is_old, story_url)
-        
-        try:
-            prompt = self.create_prompt(title, seo_story, source, is_old, desc)
-            
-            chat_completion = self.client.chat.completions.create(
-                messages=[
-                    {
-                        "role": "system",
-                        "content": """আপনি একজন অভিজ্ঞ কন্টেন্ট ক্রিয়েটর এবং ডিজিটাল মার্কেটার। 
-                        আপনার কাজ হলো টেক নিউজকে আকর্ষণীয় ফেসবুক পোস্টে রূপান্তর করা।
-                        
-                        গুরুত্বপূর্ণ নিয়ম:
-                        - সম্পূর্ণ বাংলায় লিখুন
-                        - বন্ধুত্বপূর্ণ ও আকর্ষণীয় টোন
-                        - রোবটিক বা অতিমাত্রায় ফরমাল হবেন না
-                        - বড় প্যারাগ্রাফ এড়িয়ে চলুন
-                        - ইমোজি ব্যবহার করুন (অতিরিক্ত না)
-                        - মিথ্যা বা অবাস্তব দাবি করবেন না
-                        - নিচের ফরম্যাটে উত্তর দিন"""
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-                model="llama3-70b-8192",
-                temperature=0.7,
-                max_tokens=1000,
-                top_p=0.9,
-                stream=False
-            )
-            
-            generated_content = chat_completion.choices[0].message.content
-            img_prompt = generate_image_prompt(title, source)
-            
-            formatted_post = f"""{generated_content}
-
-📌 সোর্স: {source}
-🔗 {story_url}
-
----
-🖼️ ইমেজ প্রম্পট: "{img_prompt}"
-"""
-            
-            return formatted_post
-            
-        except Exception as e:
-            logger.error(f"❌ Groq API ত্রুটি: {e}")
-            return self.generate_fallback_post(title, seo_story, source, is_old, story_url)
-    
-    def create_prompt(self, title, seo_story, source, is_old, desc):
-        """Groq-এর জন্য প্রম্পট তৈরি করে"""
-        old_status = "পুরাতন" if is_old else "নতুন"
-        
-        prompt = f"""
-খবরের শিরোনাম: {title}
-খবরের বিবরণ: {seo_story}
-খবরের সোর্স: {source}
-খবরের স্ট্যাটাস: {old_status} খবর
-
-এখন এই খবরটি নিচের ফরম্যাটে একটি ফেসবুক পোস্টে রূপান্তর করুন:
-
-ফরম্যাট:
-🔥 [একটি স্ক্রল-স্টপিং হুক - প্রথম লাইনেই মনোযোগ কাড়বে]
-
-[একটি ন্যাচারাল ও এনগেজিং বডি - সরাসরি দর্শকের সাথে কথা বলবে]
-[বেনিফিট হাইলাইট করুন - ফিচার না বলে সুবিধাগুলো বলুন]
-
-💭 [একটি প্রশ্ন যা কমেন্ট উৎসাহিত করবে]
-
-👉 [একটি স্ট্রং Call-to-Action]
-
-হ্যাশট্যাগ: [৫-৮টি রিলেভেন্ট হ্যাশট্যাগ]
-
-নিয়মাবলী:
-১. সম্পূর্ণ বাংলায় লিখুন
-২. বন্ধুত্বপূর্ণ ও আকর্ষণীয় টোন রাখুন
-৩. রোবটিক বা ফরমাল হবেন না
-৪. বড় প্যারাগ্রাফ এড়িয়ে চলুন
-৫. স্বাভাবিকভাবে ইমোজি ব্যবহার করুন
-৬. মিথ্যা দাবি করবেন না
-৭. পোস্টটি ফেসবুকের জন্য উপযোগী করুন
-"""
-        return prompt
-    
-    def generate_fallback_post(self, title, seo_story, source, is_old=False, story_url="#"):
-        """Groq না থাকলে ফ্যালব্যাক জেনারেটর"""
-        
-        hooks = [
-            f"🚨 ব্রেকিং: {title[:30]}",
-            f"⚡ শুনেছেন? {title[:30]}",
-            f"🔥 গরম খবর: {title[:30]}",
-            f"💥 চমক! {title[:30]}"
+    def __init__(self):
+        self.hook_templates = [
+            "🚨 ব্রেকিং: {title}",
+            "⚡ শুনেছেন কি? {title}",
+            "🔥 গরম খবর: {title}",
+            "💥 চমক! {title}",
+            "🤯 অবিশ্বাস্য! {title}",
+            "🎯 লক্ষ্য করুন: {title}",
+            "🌟 নতুন আপডেট: {title}",
+            "📢 জেনে নিন: {title}",
+            "💡 জানেন কি? {title}",
+            "🚀 বড় খবর: {title}"
         ]
-        hook = random.choice(hooks) + "!" if is_old else random.choice(hooks) + "!"
         
-        source_names = {
+        self.cta_templates = [
+            "আপনার কি মতামত? কমেন্টে জানান! 💬",
+            "এই খবর সম্পর্কে আপনার কী ধারণা? নিচে লিখুন 👇",
+            "আপনি কি এই টেকনোলজি ব্যবহার করবেন? জানাতে ভুলবেন না! 😊",
+            "এই খবরটি আপনার বন্ধুদের সাথে শেয়ার করুন! 📤",
+            "আরও এরকম আপডেট পেতে পেজটি ফলো করুন! 👍",
+            "এই খবরটি কীভাবে কাজে লাগাতে পারেন? কমেন্টে বলুন! 💭",
+            "আপনার কি মনে হয়? আমাদের জানান! ✍️"
+        ]
+        
+        self.benefit_templates = [
+            "এর মাধ্যমে আপনি সময় বাঁচাতে পারবেন 🕐",
+            "এটি আপনার কাজের গতি বাড়াবে 🚀",
+            "টেকনোলজিটি আপনার জীবনকে সহজ করবে 💡",
+            "এটি নতুন দিগন্ত উন্মোচন করবে 🌅",
+            "আপনি এর মাধ্যমে বেশি দক্ষ হতে পারবেন 🎯",
+            "এটি আপনার সৃজনশীলতা বাড়াবে 🎨",
+            "আপনি এর থেকে শিখতে পারবেন অনেক কিছু 📚"
+        ]
+        
+        self.engagement_questions = [
+            "আপনি কি মনে করেন এই টেকনোলজি আমাদের জীবন পরিবর্তন করবে? 🤔",
+            "এই খবরটি আপনার জন্য কতটুকু প্রাসঙ্গিক? ⭐",
+            "আপনি কি এই টেকনোলজি ব্যবহার করতে আগ্রহী? 💭",
+            "আপনার কি এই বিষয়ে কোনো অভিজ্ঞতা আছে? শেয়ার করুন! 📖",
+            "আপনি কি এই খবরটি আগে শুনেছেন? 🗣️"
+        ]
+    
+    def generate_scroll_stopping_hook(self, title, is_old=False):
+        """Scroll-stopping hook তৈরি করে - প্রথম লাইনেই মনোযোগ কাড়ে"""
+        hook_prefix = random.choice(self.hook_templates)
+        hook = hook_prefix.format(title=title[:35])
+        
+        # পুরাতন খবরের জন্য আলাদা হুক
+        if is_old:
+            old_hooks = [
+                f"🔄 মনে পড়ে? {title[:30]}",
+                f"📌 গুরুত্বপূর্ণ রিমাইন্ডার: {title[:30]}",
+                f"🔙 ফিরে দেখা: {title[:30]}",
+                f"⏳ সময়ের সেরা খবর: {title[:30]}"
+            ]
+            hook = random.choice(old_hooks)
+        
+        # হুককে আরও আকর্ষণীয় করা
+        if not hook.endswith(('!', '?', '।')):
+            hook += "!"
+            
+        return hook
+    
+    def generate_natural_body(self, title, seo_story, source, is_old=False):
+        """Natural এবং engaging body তৈরি করে - সরাসরি দর্শকের সাথে কথা বলে"""
+        
+        # সোর্স অনুযায়ী পরিচয়
+        source_intros = {
             'TechCrunch AI': 'টেকক্রাঞ্চের', 
             'The Verge - AI': 'দ্য ভার্জের', 
             'MIT Tech Review AI': 'এমআইটি টেক রিভিউয়ের', 
             'Hacker News Top': 'হ্যাকার নিউজের'
         }
-        src = source_names.get(source, source)
+        source_name = source_intros.get(source, source)
         
-        body = f"{src} রিপোর্ট বলছে, {seo_story[:200]}। এই খবরটি সত্যিই গুরুত্বপূর্ণ!"
+        bodies = []
         
-        benefits = [
-            "🎁 **কী কী পাবেন?**",
-            "  • 🤖 এআই আপনার কাজকে সহজ করবে",
-            "  • ⏳ সময় বাঁচাবে অনেক",
-            "  • 🎯 সঠিক সিদ্ধান্ত নিতে সাহায্য করবে"
+        # বিভিন্ন স্টাইলের বডি
+        body_templates = [
+            f"আজকের টেক দুনিয়ায় {title[:20]} নিয়ে আলোচনা চলছে। {source_name} রিপোর্ট বলছে, {seo_story[:80]}। এই খবরটি সত্যিই চমকপ্রদ!",
+            
+            f"বন্ধুরা, {title[:20]} বিষয়টি আমার দৃষ্টি কেড়েছে। {source_name} মতে, {seo_story[:80]}। এটা নিয়ে আমাদের ভাবনা উচিত।",
+            
+            f"আমি যখন {title[:20]} খবরটা দেখলাম, মনে হলো এইটা শেয়ার না করে পারছি না! {source_name} বলছে, {seo_story[:80]}। আপনার কী মতামত?",
+            
+            f"আপনি কি জানেন? {title[:20]} প্রযুক্তি দুনিয়ায় আলোড়ন ফেলেছে। {source_name} এর বিশ্লেষণ বলছে, {seo_story[:80]}। এটা আসলেই গুরুত্বপূর্ণ!",
+            
+            f"টেকনোলজি প্রেমীদের জন্য বড় খবর! {title[:20]} নিয়ে {source_name} প্রকাশ করেছে প্রতিবেদন। {seo_story[:80]}। এইটা মিস করবেন না!",
+            
+            f"আজকের আলোচনার বিষয় {title[:20]}। {source_name} এর মতে, {seo_story[:80]}। আপনার কী মনে হয়, এই টেকনোলজি কি কাজে আসবে?"
         ]
-        benefits_text = "\n".join(benefits)
         
-        questions = [
-            "💭 আপনি কি মনে করেন এই টেকনোলজি আমাদের জীবন পরিবর্তন করবে? 🤔",
-            "💭 এই খবরটি আপনার জন্য কতটুকু প্রাসঙ্গিক? ⭐"
-        ]
-        question = random.choice(questions)
+        # এলোমেলোভাবে বডি বাছাই
+        body = random.choice(body_templates)
         
-        ctas = [
-            "👉 আপনার মতামত কমেন্টে জানান! 💬",
-            "👉 বন্ধুদের সাথে শেয়ার করুন! 📤"
-        ]
-        cta = random.choice(ctas)
+        # পুরাতন খবরের জন্য আলাদা বডি
+        if is_old:
+            old_bodies = [
+                f"আপনি কি {title[:20]} খবরটি মনে আছে? {source_name} রিপোর্টটি আবার পড়ে দেখি, {seo_story[:80]}। এই খবরটি এখনো প্রাসঙ্গিক!",
+                f"পুরনো হলেও গুরুত্বপূর্ণ! {title[:20]} নিয়ে {source_name} বলেছিল, {seo_story[:80]}। এটা ভুলে গেলে চলবে না!",
+                f"আমার মনে পড়ে যখন {title[:20]} খবরটি প্রথম এলো। {source_name} এর সেই প্রতিবেদনে ছিল, {seo_story[:80]}। এখনো কাজে লাগবে!"
+            ]
+            body = random.choice(old_bodies)
         
-        hashtags = "#TechNews #AI #BanglaTech #Innovation #TechUpdate"
+        return body
+    
+    def highlight_benefits(self, title, seo_story):
+        """Features না বলে Benefits হাইলাইট করে"""
+        benefits = []
         
-        old_header = "🔄 **পুনরায় শেয়ার করা হচ্ছে**\n\n" if is_old else ""
-        img_prompt = generate_image_prompt(title, source)
+        # খবরের ধরণ অনুযায়ী বেনিফিট বাছাই
+        if 'AI' in title or 'artificial' in title.lower():
+            benefits = [
+                "🤖 এআই আপনার কাজকে সহজ করবে",
+                "⏳ সময় বাঁচাবে অনেক",
+                "🎯 সঠিক সিদ্ধান্ত নিতে সাহায্য করবে",
+                "💡 নতুন চিন্তার দিগন্ত খুলবে",
+                "📈 দক্ষতা বাড়াবে বহুগুণ"
+            ]
+        elif 'ChatGPT' in title or 'GPT' in title:
+            benefits = [
+                "💬 কথোপকথনে নতুন মাত্রা",
+                "📝 কন্টেন্ট তৈরি করবে দ্রুত",
+                "🎨 ক্রিয়েটিভিটি বাড়াবে",
+                "🧠 শেখার অভিজ্ঞতা উন্নত করবে",
+                "🌍 ভাষার বাধা দূর করবে"
+            ]
+        elif 'Google' in title:
+            benefits = [
+                "🔍 তথ্য খোঁজা হবে সহজ",
+                "⚡ দ্রুত কাজ করার সুযোগ",
+                "📱 যেকোনো ডিভাইসে ব্যবহার",
+                "🌐 বিশ্বের সাথে সংযুক্ত থাকা",
+                "💡 নতুন আইডিয়া পেতে সাহায্য"
+            ]
+        else:
+            # জেনেরিক বেনিফিট
+            benefits = [
+                "🚀 আপনার কাজের গতি বাড়াবে",
+                "💡 নতুন কিছু শেখার সুযোগ",
+                "🎯 লক্ষ্য পৌঁছাতে সহায়তা",
+                "⭐ অভিজ্ঞতা উন্নত করবে",
+                "🌟 জীবনে নতুন দিক দেখাবে"
+            ]
         
-        formatted_post = f"""{old_header}🔥 {hook}
+        # এলোমেলোভাবে ২-৩টি বেনিফিট বাছাই
+        selected_benefits = random.sample(benefits, min(3, len(benefits)))
+        benefits_text = '\n'.join(f"  • {b}" for b in selected_benefits)
+        
+        return f"🎁 **কী কী পাবেন?**\n{benefits_text}"
+    
+    def generate_cta(self, is_old=False):
+        """Strong Call-to-Action তৈরি করে"""
+        cta = random.choice(self.cta_templates)
+        
+        # পুরাতন খবরের জন্য আলাদা CTA
+        if is_old:
+            old_cta = [
+                "এই খবরটি আপনার বন্ধুদের সাথে শেয়ার করুন! 📤",
+                "আপনার কী মনে আছে এই খবরটি সম্পর্কে? কমেন্টে বলুন! 💬",
+                "এই খবরটি কি আপনার কাজে এসেছে? জানাতে ভুলবেন না! 😊",
+                "আরও পুরাতন খবর পেতে ফলো করুন! 👍"
+            ]
+            cta = random.choice(old_cta)
+            
+        return cta
+    
+    def generate_hashtags(self, title, source, is_old=False):
+        """৫-৮টি relevant হ্যাশট্যাগ তৈরি করে"""
+        base_tags = ['#TechNews', '#AI', '#BanglaTech', '#Innovation']
+        source_tags = {
+            'TechCrunch AI': ['#TechCrunch'],
+            'The Verge - AI': ['#TheVerge'],
+            'MIT Tech Review AI': ['#MIT', '#TechReview'],
+            'Hacker News Top': ['#HackerNews']
+        }
+        
+        # টাইটেল থেকে কীওয়ার্ড এক্সট্রাক্ট
+        keyword_tags = []
+        if 'AI' in title or 'artificial' in title.lower():
+            keyword_tags.append('#ArtificialIntelligence')
+        if 'Google' in title:
+            keyword_tags.append('#Google')
+        if 'Microsoft' in title:
+            keyword_tags.append('#Microsoft')
+        if 'ChatGPT' in title or 'GPT' in title:
+            keyword_tags.append('#ChatGPT')
+        if 'Tesla' in title or 'Elon' in title:
+            keyword_tags.append('#Tesla')
+        if 'robot' in title.lower():
+            keyword_tags.append('#Robotics')
+        if 'data' in title.lower():
+            keyword_tags.append('#DataScience')
+        
+        # সোর্স ট্যাগ
+        source_tag = source_tags.get(source, ['#TechUpdate'])
+        
+        # সব ট্যাগ একত্রিত করা
+        all_tags = base_tags + keyword_tags + source_tag
+        
+        # পুরাতন খবরের জন্য আলাদা ট্যাগ
+        if is_old:
+            old_tags = ['#Throwback', '#OldButGold', '#RememberThis']
+            all_tags.extend(old_tags)
+        
+        # ডুপ্লিকেট রিমুভ এবং ৫-৮টি ট্যাগ বাছাই
+        unique_tags = list(dict.fromkeys(all_tags))
+        selected_tags = random.sample(unique_tags, min(random.randint(5, 8), len(unique_tags)))
+        
+        return ' '.join(selected_tags)
+    
+    def generate_engagement_question(self):
+        """Comment উৎসাহিত করার প্রশ্ন তৈরি করে"""
+        return random.choice(self.engagement_questions)
+    
+    def generate_full_post(self, story, is_old=False):
+        """সম্পূর্ণ পোস্ট তৈরি করে - দেওয়া ফরম্যাট অনুযায়ী"""
+        
+        title = story['title']
+        seo_story = story.get('seo_story', title)
+        source = story['source']
+        
+        # ১. Scroll-stopping hook
+        hook = self.generate_scroll_stopping_hook(title, is_old)
+        
+        # ২. Natural engaging body
+        body = self.generate_natural_body(title, seo_story, source, is_old)
+        
+        # ৩. Benefits highlight
+        benefits = self.highlight_benefits(title, seo_story)
+        
+        # ৪. Strong CTA
+        cta = self.generate_cta(is_old)
+        
+        # ৫. Engagement question
+        question = self.generate_engagement_question()
+        
+        # ৬. Hashtags
+        hashtags = self.generate_hashtags(title, source, is_old)
+        
+        # ৭. ইমেজ প্রম্পট (আগের মতো)
+        img_prompt = story.get('img_prompt', generate_image_prompt(title, source))
+        
+        # ফাইনাল ফরম্যাট
+        formatted_post = f"""🔥 {hook}
 
 {body}
 
-{benefits_text}
+{benefits}
 
-{question}
+💭 {question}
 
-{cta}
+👉 {cta}
 
 📌 সোর্স: {source}
-🔗 {story_url}
+🔗 {story['url']}
 
 {hashtags}
 
 ---
 🖼️ ইমেজ প্রম্পট: "{img_prompt}"
 """
+        
+        # পুরাতন খবরের জন্য আলাদা হেডার
+        if is_old:
+            formatted_post = f"🔄 **পুনরায় শেয়ার করা হচ্ছে**\n\n" + formatted_post
+        
         return formatted_post
 
 # ==================== ইমেজ প্রম্পট জেনারেটর ====================
@@ -242,6 +325,8 @@ def generate_image_prompt(title, source):
         tech_keywords.append('Tesla')
     if 'robot' in title.lower():
         tech_keywords.append('robot')
+    if 'innovation' in title.lower() or 'breakthrough' in title.lower():
+        tech_keywords.append('innovation')
     
     keywords_str = ' '.join(tech_keywords) if tech_keywords else 'technology news'
     
@@ -249,7 +334,11 @@ def generate_image_prompt(title, source):
         f"Professional news studio with {keywords_str} headline on digital screens, journalists working, modern broadcast setting, realistic documentary photography",
         f"Tech conference presentation about {keywords_str}, professional speakers, engaged audience, documentary style photography",
         f"Modern research lab with scientists discussing {keywords_str}, professional environment, realistic lighting",
-        f"Digital innovation hub featuring {keywords_str}, creative professionals working, modern office, realistic photography"
+        f"Digital innovation hub featuring {keywords_str}, creative professionals working, modern office, realistic photography",
+        f"Technology breakthrough moment with {keywords_str}, scientists celebrating, professional news photography style",
+        f"High-tech workspace with {keywords_str} development, professional team collaborating, realistic documentary style",
+        f"Futuristic technology center showcasing {keywords_str}, professional setting, realistic architectural photography",
+        f"Professional tech journalists reporting on {keywords_str}, modern newsroom, realistic broadcast photography"
     ]
     
     if 'TechCrunch' in source:
@@ -319,12 +408,14 @@ def save_state(state):
         json.dump(state, f, ensure_ascii=False, indent=2)
 
 def generate_seo_story(title, source, desc=""):
-    """SEO ফ্রেন্ডলি স্টোরি তৈরি করে"""
+    """SEO ফ্রেন্ডলি স্টোরি টেলিং মোডে কন্টেন্ট তৈরি করে"""
     
     templates = [
-        f"In a groundbreaking development, {title.lower()} has emerged as a game-changer in the tech world.",
-        f"The tech industry is buzzing with excitement as {title.lower()} takes center stage.",
-        f"Revolutionizing the tech landscape, {title.lower()} represents a significant leap forward."
+        f"In a groundbreaking development, {title.lower()} has emerged as a game-changer in the tech world. This innovation promises to reshape how we interact with technology daily.",
+        f"The tech industry is buzzing with excitement as {title.lower()} takes center stage. This latest advancement demonstrates the incredible pace of innovation in the digital age.",
+        f"Revolutionizing the tech landscape, {title.lower()} represents a significant leap forward. Experts are calling this a defining moment in technological evolution.",
+        f"Breaking new ground in the world of technology, {title.lower()} has captured the attention of industry leaders worldwide. This development could transform the future of digital innovation.",
+        f"In a remarkable display of technological progress, {title.lower()} showcases the brilliant minds behind modern innovation. This advancement could change the way we live and work."
     ]
     
     if desc and len(desc) > 10:
@@ -333,13 +424,21 @@ def generate_seo_story(title, source, desc=""):
         if len(main_content) > 70:
             main_content = main_content[:70] + "..."
     else:
-        main_content = f"This breakthrough in {title[:20].lower()} technology represents the next frontier."
+        main_content = f"This breakthrough in {title[:20].lower()} technology represents the next frontier in digital innovation and artificial intelligence."
     
     story_template = random.choice(templates)
     full_story = f"{story_template} {main_content}"
     
-    if len(full_story.split()) > 100:
+    words = len(full_story.split())
+    if words > 100:
         full_story = ' '.join(full_story.split()[:100])
+    elif words < 90:
+        extra = random.choice([
+            f"This development in {title.split()[0] if title.split() else 'technology'} could have far-reaching implications for the future.",
+            f"As the tech community continues to explore these possibilities, the potential applications seem limitless.",
+            f"This achievement marks another milestone in the rapid evolution of technology."
+        ])
+        full_story = f"{full_story} {extra}"
     
     final_story = full_story.strip()
     if not final_story.endswith(('.', '!', '?')):
@@ -348,7 +447,7 @@ def generate_seo_story(title, source, desc=""):
     return final_story
 
 def get_all_stories():
-    """সব খবর আনে"""
+    """সব খবর আনে - নতুন এবং পুরাতন সব"""
     all_stories = []
     for name, feed_url in FEEDS:
         stories = fetch_rss(feed_url, max_items=5)
@@ -359,21 +458,25 @@ def get_all_stories():
     state = load_state()
     posted = state.get('posted', {})
     
+    # ৩০ দিনের বেশি পুরোনো খবর ডিলিট করে দিন
     now_ts = datetime.now().timestamp()
     cutoff_ts = now_ts - (30 * 24 * 60 * 60)
     for key in list(posted.keys()):
         if posted[key].get('ts', 0) < cutoff_ts:
             del posted[key]
 
+    # সব খবর প্রসেস করুন
     processed_stories = []
     for story in all_stories:
         h = get_story_hash(story['title'], story['url'])
         
         if h in posted:
+            # পুরাতন খবর
             story['seo_story'] = posted[h].get('seo_story', generate_seo_story(story['title'], story['source'], story.get('desc', '')))
             story['img_prompt'] = posted[h].get('img_prompt', generate_image_prompt(story['title'], story['source']))
             story['is_old'] = True
         else:
+            # নতুন খবর
             seo_story = generate_seo_story(story['title'], story['source'], story.get('desc', ''))
             img_prompt = generate_image_prompt(story['title'], story['source'])
             
@@ -396,62 +499,57 @@ def get_all_stories():
 # ==================== টেলিগ্রাম হ্যান্ডলার ====================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/start কমান্ড"""
+    """/start কমান্ড হ্যান্ডলার"""
     if str(update.effective_chat.id) != CHAT_ID:
         await update.message.reply_text("⛔ এই বটটি শুধুমাত্র মালিকের জন্য।")
         return
     
-    generator = GroqAIContentGenerator(GROQ_API_KEY)
+    # Agentic AI জেনারেটর ইনিশিয়ালাইজ
+    generator = AgenticAIContentGenerator()
     
     await update.message.reply_text(
-        "🤖 **Groq AI নিউজ বট**\n\n"
-        "আমি বিশ্বের সেরা টেক মিডিয়া থেকে খবর সংগ্রহ করি এবং সেগুলোকে আকর্ষণীয় ফেসবুক পোস্টে রূপান্তর করি।\n\n"
+        "🤖 **Agentic AI নিউজ বট**\n\n"
+        "আমি বিশ্বের সেরা টেক মিডিয়া থেকে খবর সংগ্রহ করি এবং সেগুলোকে ফেসবুক-বান্ধব ক্যাপশনে রূপান্তর করি।\n\n"
         "📌 **প্রতিটি পোস্টে থাকছে:**"
         "\n✅ স্ক্রল-স্টপিং হুক"
         "\n✅ ন্যাচারাল ও এনগেজিং বডি"
         "\n✅ বেনিফিট হাইলাইট"
         "\n✅ স্ট্রং CTA"
         "\n✅ ৫-৮টি হ্যাশট্যাগ"
+        "\n✅ কমেন্ট উৎসাহিত করার প্রশ্ন"
         "\n\n⏳ খবর আনা হচ্ছে..."
     )
     
     all_stories = get_all_stories()
     
     if not all_stories:
-        await update.message.reply_text("📭 কোনো খবর পাওয়া যায়নি।")
+        await update.message.reply_text(
+            "📭 কোনো খবর পাওয়া যায়নি।\n\n"
+            "🔄 আবার চেষ্টা করুন।"
+        )
         return
     
+    # নতুন এবং পুরাতন আলাদা
     new_stories = [s for s in all_stories if not s.get('is_old', False)]
     old_stories = [s for s in all_stories if s.get('is_old', False)]
     
+    # নতুন খবর
     if new_stories:
         await update.message.reply_text("🆕 **নতুন খবর:**", parse_mode='Markdown')
         for story in new_stories:
-            post = generator.generate_post_with_groq(
-                story['title'], 
-                story['seo_story'], 
-                story['source'], 
-                False,
-                story.get('desc', ''),
-                story['url']
-            )
+            post = generator.generate_full_post(story, is_old=False)
             await update.message.reply_text(post, parse_mode='Markdown')
             await asyncio.sleep(0.5)
     
+    # পুরাতন খবর
     if old_stories:
-        await update.message.reply_text("🔄 **পুরাতন খবর:**", parse_mode='Markdown')
+        await update.message.reply_text("🔄 **পুরাতন খবর (পুনরায়):**", parse_mode='Markdown')
         for story in old_stories:
-            post = generator.generate_post_with_groq(
-                story['title'], 
-                story['seo_story'], 
-                story['source'], 
-                True,
-                story.get('desc', ''),
-                story['url']
-            )
+            post = generator.generate_full_post(story, is_old=True)
             await update.message.reply_text(post, parse_mode='Markdown')
             await asyncio.sleep(0.5)
     
+    # সারাংশ
     total = len(all_stories)
     new_count = len(new_stories)
     old_count = len(old_stories)
@@ -460,7 +558,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✅ **সফল!** {total}টি খবর পাঠানো হলো!\n"
         f"🆕 নতুন: {new_count}টি\n"
         f"🔄 পুরাতন: {old_count}টি\n\n"
-        f"📊 প্রতিটি পোস্ট Groq AI দ্বারা জেনারেটেড।",
+        f"📊 প্রতিটি পোস্ট Agentic AI দ্বারা জেনারেটেড।\n"
+        f"💬 আপনার মতামত জানাতে ভুলবেন না!",
         parse_mode='Markdown'
     )
 
@@ -477,17 +576,11 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("news", news))
     
-    logger.info("🤖 Groq AI News Bot চালু হচ্ছে...")
-    logger.info(f"📱 চ্যাট আইডি: {CHAT_ID}")
+    logger.info("🤖 Agentic AI News Bot চালু হচ্ছে...")
+    logger.info("📱 চ্যাট আইডি: {CHAT_ID}")
     logger.info("💡 /start বা /news কমান্ড দিন")
-    
-    if GROQ_API_KEY:
-        logger.info("✅ Groq API কনফিগার করা হয়েছে")
-    else:
-        logger.warning("⚠️ Groq API Key সেট নেই - ফ্যালব্যাক মোড চলবে")
     
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     main()
-####@@#@#@#@#@#
